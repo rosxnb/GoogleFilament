@@ -38,7 +38,7 @@ int main()
 
     constexpr int width {1000};
     constexpr int height {800};
-    constexpr char const* title {"The Triangle"};
+    constexpr char const* title {"Triangle Events"};
     Window window(width, height, title);
 
     SwapChain* swapChain = engine->createSwapChain(window.getMetalLayerHandle());
@@ -60,13 +60,11 @@ int main()
 
     Entity cameraEntity = EntityManager::get().create();
     Camera* camera = engine->createCamera(cameraEntity);
-    camera->setProjection(45.0, 800.0 / 600.0, 0.1, 10.0);
+    camera->setProjection(45.0, (double)width / height, 0.1, 10.0);
     camera->lookAt({0, 0, 3}, {0, 0, 0});
     view->setCamera(camera);
     view->setScene(scene);
-
-    Viewport vp(0, 0, 800, 600);
-    view->setViewport(vp);
+    view->setViewport(Viewport(0, 0, width, height));
 
     // Triangle geometry
     struct Vertex { float pos[3]; };
@@ -117,18 +115,107 @@ int main()
 
     scene->addEntity(triangle);
 
-    window.show();
-    window.run([&]() -> bool {
+    // State for interactive camera control
+    float cameraDistance = 3.0f;
+    float cameraAngleX = 0.0f;
+    float cameraAngleY = 0.0f;
+    bool isDragging = false;
+
+    // Setup callbacks
+    WindowCallbacks callbacks;
+
+    callbacks.onKey = [&](const KeyEvent& e) {
+        if (e.isPressed) {
+            printf("Key pressed: %d (Shift:%d Ctrl:%d Alt:%d Cmd:%d)\n", 
+                   e.keyCode, e.shift, e.ctrl, e.alt, e.cmd);
+            
+            // ESC to quit
+            if (e.keyCode == KeyCode::Escape) {
+                printf("Escape pressed - quitting\n");
+                window.quit();
+            }
+            
+            // WASD camera movement
+            if (e.keyCode == KeyCode::W) {
+                cameraDistance -= 0.5f;
+                printf("Moving camera closer: %.2f\n", cameraDistance);
+            }
+            if (e.keyCode == KeyCode::S) {
+                cameraDistance += 0.5f;
+                printf("Moving camera farther: %.2f\n", cameraDistance);
+            }
+        }
+    };
+
+    callbacks.onMouseButton = [&](const MouseButtonEvent& e) {
+        printf("Mouse button %d %s at (%.1f, %.1f)\n", 
+               e.button, e.isPressed ? "pressed" : "released", e.x, e.y);
+        
+        if (e.button == 0) { // Left button
+            isDragging = e.isPressed;
+        }
+    };
+
+    callbacks.onMouseMove = [&](const MouseMoveEvent& e) {
+        if (isDragging) {
+            // Rotate camera based on mouse drag
+            cameraAngleX += e.deltaX * 0.01f;
+            cameraAngleY += e.deltaY * 0.01f;
+            
+            // Clamp vertical angle
+            if (cameraAngleY > 1.5f) cameraAngleY = 1.5f;
+            if (cameraAngleY < -1.5f) cameraAngleY = -1.5f;
+        }
+    };
+
+    callbacks.onScroll = [&](const ScrollEvent& e) {
+        printf("Scroll: (%.2f, %.2f)\n", e.deltaX, e.deltaY);
+        
+        // Zoom with scroll wheel
+        cameraDistance -= e.deltaY * 0.1f;
+        if (cameraDistance < 0.5f) cameraDistance = 0.5f;
+        if (cameraDistance > 10.0f) cameraDistance = 10.0f;
+    };
+
+    callbacks.onResize = [&](const WindowResizeEvent& e) {
+        printf("Window resized to: %dx%d\n", e.width, e.height);
+        
+        // Update viewport and camera aspect ratio
+        view->setViewport(Viewport(0, 0, e.width, e.height));
+        camera->setProjection(45.0, (double)e.width / e.height, 0.1, 10.0);
+    };
+
+    callbacks.onRender = [&]() -> bool {
+        // Update camera position based on angles and distance
+        float x = sin(cameraAngleX) * cos(cameraAngleY) * cameraDistance;
+        float y = sin(cameraAngleY) * cameraDistance;
+        float z = cos(cameraAngleX) * cos(cameraAngleY) * cameraDistance;
+        
+        camera->lookAt({x, y, z}, {0, 0, 0});
+        
+        // Render frame
         if (renderer->beginFrame(swapChain)) {
             renderer->render(view);
             renderer->endFrame();
         }
-        return true;  // return false to quit
-    });
+        
+        return true; // Continue running
+    };
 
+    // Show window and start event loop
+    window.show();
+    window.run(callbacks);
+
+    // Cleanup
     engine->destroy(vb);
     engine->destroy(ib);
     engine->destroy(material);
+    engine->destroy(swapChain);
+    engine->destroy(renderer);
+    engine->destroy(scene);
+    engine->destroy(view);
+    engine->destroyCameraComponent(cameraEntity);
+    EntityManager::get().destroy(cameraEntity);
     Engine::destroy(&engine);
 
     return 0;
