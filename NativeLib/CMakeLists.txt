@@ -6,6 +6,7 @@ add_library(nativelib
 target_link_libraries(nativelib
     PRIVATE
         "-framework Cocoa"
+        "-framework QuartzCore"
 )
 
 target_include_directories(nativelib
